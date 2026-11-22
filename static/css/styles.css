@@ -105,6 +105,12 @@ a:focus-visible {
   line-height: 1.25;
 }
 
+.wordmark img {
+  display: block;
+  height: 48px;
+  width: auto;
+}
+
 .wordmark:hover {
   color: var(--text);
   text-decoration: none;

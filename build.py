@@ -125,7 +125,8 @@ def page_shell(
   <title>{html.escape(page_title)}</title>
   <meta name="description" content="{html.escape(description)}">
   <meta name="theme-color" content="#0a0a0a">
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon.png" type="image/png" sizes="64x64">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
@@ -133,8 +134,7 @@ def page_shell(
   <header class="site-header">
     <div class="header-inner">
       <a class="wordmark" href="/">
-        <small>One Minute</small>
-        Interview Tips
+        <img src="/images/logo-header.png" alt="One Minute Interview Tips" width="189" height="48">
       </a>
       <nav class="site-nav" aria-label="Primary">
           {nav}

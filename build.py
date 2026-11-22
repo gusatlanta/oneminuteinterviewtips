@@ -25,6 +25,15 @@ DEFAULT_IMAGE = "og-default.png"
 JOIN_URL = "https://www.skool.com/jobseekers"
 JOIN_NAV = "Join the community"
 JOIN_CTA = "Join the Job Seekers community"
+ORG = {
+    "@type": "Organization",
+    "@id": f"{SITE_URL}/#org",
+    "name": SITE_NAME,
+    "url": f"{SITE_URL}/",
+    "logo": f"{SITE_URL}/apple-touch-icon.png",
+    "sameAs": [JOIN_URL],
+}
+AUTHOR = {"@type": "Person", "@id": f"{SITE_URL}/#gus", "name": "Gus Cawley", "jobTitle": "Recruiter and CPA"}
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
@@ -197,6 +206,54 @@ def tip_list_html(posts: list[dict]) -> str:
     return "      <ul class=\"tip-list\">\n" + "\n".join(items) + "\n      </ul>"
 
 
+def breadcrumbs(items: list[tuple[str, str]]) -> dict:
+    return {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": i, "name": name, "item": SITE_URL + path}
+            for i, (name, path) in enumerate(items, 1)
+        ],
+    }
+
+
+def related_html(post: dict, posts: list[dict], count: int = 3) -> str:
+    others = [p for p in posts if p["slug"] != post["slug"]][:count]
+    if not others:
+        return ""
+    links = "\n".join(
+        f'            <li><a href="/tips/{html.escape(p["slug"])}/">{html.escape(p["title"])}</a></li>'
+        for p in others
+    )
+    return f"""        <section class="related" aria-labelledby="related-heading">
+          <h2 id="related-heading">More one-minute tips</h2>
+          <ul>
+{links}
+          </ul>
+        </section>"""
+
+
+def llms_txt(posts: list[dict]) -> str:
+    lines = [
+        f"# {SITE_NAME}",
+        "",
+        "> Short, practical interview and job-search tips you can read in about a minute, written by "
+        "Gus Cawley, a recruiter and CPA in Atlanta, GA. New tips are posted here and shared in the "
+        f"Job Seekers community on Skool ({JOIN_URL}).",
+        "",
+        "## Tips",
+    ]
+    lines += [f"- [{p['title']}]({SITE_URL}/tips/{p['slug']}/): {p['summary']}" for p in posts]
+    lines += [
+        "",
+        "## Pages",
+        f"- [Home]({SITE_URL}/): latest tips",
+        f"- [All tips]({SITE_URL}/tips/): every tip, newest first",
+        f"- [Job Seekers community]({JOIN_URL}): community for job seekers",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
@@ -239,6 +296,15 @@ def build() -> int:
             content=home,
             year=year,
             path="/",
+            jsonld={
+                "@context": "https://schema.org",
+                "@graph": [
+                    {"@type": "WebSite", "@id": f"{SITE_URL}/#site", "name": SITE_NAME,
+                     "url": f"{SITE_URL}/", "publisher": {"@id": f"{SITE_URL}/#org"}},
+                    ORG,
+                    AUTHOR,
+                ],
+            },
         ),
     )
 
@@ -253,6 +319,14 @@ def build() -> int:
             content=archive,
             year=year,
             path="/tips/",
+            jsonld={
+                "@context": "https://schema.org",
+                "@graph": [
+                    {"@type": "CollectionPage", "name": "All tips", "url": f"{SITE_URL}/tips/",
+                     "isPartOf": {"@id": f"{SITE_URL}/#site"}},
+                    breadcrumbs([("Home", "/"), ("All tips", "/tips/")]),
+                ],
+            },
         ),
     )
 
@@ -271,6 +345,7 @@ def build() -> int:
           {post['body_html']}
         </div>
         <p class="cta"><a href="{JOIN_URL}">{html.escape(JOIN_CTA)}</a></p>
+{related_html(post, posts)}
         <p><a class="back" href="/tips/">All tips</a></p>
       </article>"""
         write(
@@ -286,17 +361,24 @@ def build() -> int:
                 og_type="article",
                 jsonld={
                     "@context": "https://schema.org",
-                    "@type": "Article",
-                    "headline": post["title"],
-                    "description": post["summary"],
-                    "datePublished": post["date"].isoformat(),
-                    "image": f"{SITE_URL}/images/{post['image'] or DEFAULT_IMAGE}",
-                    "author": {"@type": "Person", "name": "Gus Cawley"},
-                    "mainEntityOfPage": f"{SITE_URL}/tips/{post['slug']}/",
+                    "@graph": [
+                        {
+                            "@type": "Article",
+                            "headline": post["title"],
+                            "description": post["summary"],
+                            "datePublished": post["date"].isoformat(),
+                            "image": f"{SITE_URL}/images/{post['image'] or DEFAULT_IMAGE}",
+                            "author": AUTHOR,
+                            "publisher": ORG,
+                            "mainEntityOfPage": f"{SITE_URL}/tips/{post['slug']}/",
+                        },
+                        breadcrumbs([("Home", "/"), ("All tips", "/tips/"), (post["title"], f"/tips/{post['slug']}/")]),
+                    ],
                 },
             ),
         )
 
+    write(DIST_DIR / "llms.txt", llms_txt(posts))
     write(DIST_DIR / "robots.txt", f"User-agent: *\nAllow: /\n\nSitemap: {SITE_URL}/sitemap.xml\n")
     latest = max(p["date"] for p in posts).isoformat()
     entries = [("/", latest), ("/tips/", latest)] + [

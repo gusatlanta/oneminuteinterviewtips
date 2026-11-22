@@ -329,3 +329,23 @@ article.tip .hero {
     padding: 1.55rem 0;
   }
 }
+
+.related {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.related h2 {
+  font-size: 1.1rem;
+  margin: 0 0 0.75rem;
+}
+
+.related ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.related li {
+  margin: 0.4rem 0;
+}

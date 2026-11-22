@@ -16,6 +16,7 @@ import markdown
 
 ROOT = Path(__file__).resolve().parent
 POSTS_DIR = ROOT / "posts"
+PAGES_DIR = ROOT / "pages"
 STATIC_DIR = ROOT / "static"
 DIST_DIR = ROOT / "dist"
 
@@ -25,6 +26,17 @@ DEFAULT_IMAGE = "og-default.png"
 JOIN_URL = "https://www.skool.com/jobseekers"
 JOIN_NAV = "Join the community"
 JOIN_CTA = "Join the Job Seekers community"
+# Guide sections: folder under pages/ -> (URL prefix, hub title, hub description, kicker).
+SECTIONS = {
+    "questions": ("/questions/", "Common interview questions",
+                  "How to answer the most common interview questions, with example answers and FAQs.",
+                  "Interview question"),
+    "roles": ("/roles/", "Interview tips by role",
+              "Interview tips for accountants, paralegals, nurses, school therapists, sales, HR, and administrative roles.",
+              "Interview tips by role"),
+    "local": ("/", None, None, "Local interview tips"),
+}
+FAQ_HEADING = "## Frequently asked questions"
 ORG = {
     "@type": "Organization",
     "@id": f"{SITE_URL}/#org",
@@ -109,6 +121,54 @@ def load_posts() -> list[dict]:
     return posts
 
 
+def split_faq(body: str, name: str) -> tuple[str, list[tuple[str, str]]]:
+    """Split the FAQ section off a guide. Questions are '### ' lines, answers plain text."""
+    if FAQ_HEADING not in body:
+        raise SystemExit(f"{name} is missing '{FAQ_HEADING}'")
+    main, faq_text = body.split(FAQ_HEADING, 1)
+    faqs = []
+    for block in faq_text.split("### ")[1:]:
+        q, _, a = block.strip().partition("\n")
+        a = " ".join(a.split())
+        if not q.strip() or not a:
+            raise SystemExit(f"{name} has an empty FAQ entry")
+        faqs.append((q.strip(), a))
+    return main.strip(), faqs
+
+
+def split_list(value: str) -> list[str]:
+    return [v.strip() for v in value.split(",") if v.strip()]
+
+
+def load_guides() -> list[dict]:
+    guides = []
+    for section, (prefix, *_rest, kicker) in SECTIONS.items():
+        for path in sorted((PAGES_DIR / section).glob("*.md")):
+            meta, body = parse_front_matter(path.read_text(encoding="utf-8"))
+            for field in ("title", "slug", "date", "summary", "related"):
+                if not meta.get(field):
+                    raise SystemExit(f"{path.name} is missing '{field}'")
+            if not SLUG_RE.match(meta["slug"]):
+                raise SystemExit(f"{path.name} has an invalid slug")
+            main, faqs = split_faq(body, path.name)
+            guides.append(
+                {
+                    "title": meta["title"],
+                    "slug": meta["slug"],
+                    "section": section,
+                    "kicker": kicker,
+                    "path": f"{prefix}{meta['slug']}/",
+                    "date": parse_date(meta["date"]),
+                    "summary": meta["summary"],
+                    "related": split_list(meta["related"]),
+                    "tips": split_list(meta.get("tips", "")),
+                    "body_html": markdown.markdown(main, extensions=["sane_lists"]),
+                    "faqs": faqs,
+                }
+            )
+    return guides
+
+
 def page_shell(
     *,
     title: str,
@@ -129,6 +189,8 @@ def page_shell(
         [
             nav_link("/", "Home", "home"),
             nav_link("/tips/", "All Tips", "tips"),
+            nav_link("/questions/", "Questions", "questions"),
+            nav_link("/roles/", "By Role", "roles"),
             f'<a href="{JOIN_URL}">{html.escape(JOIN_NAV)}</a>',
         ]
     )
@@ -232,7 +294,44 @@ def related_html(post: dict, posts: list[dict], count: int = 3) -> str:
         </section>"""
 
 
-def llms_txt(posts: list[dict]) -> str:
+def link_list_html(heading: str, hid: str, items: list[tuple[str, str]]) -> str:
+    if not items:
+        return ""
+    links = "\n".join(
+        f'            <li><a href="{html.escape(href)}">{html.escape(label)}</a></li>' for href, label in items
+    )
+    return f"""        <section class="related" aria-labelledby="{hid}">
+          <h2 id="{hid}">{html.escape(heading)}</h2>
+          <ul>
+{links}
+          </ul>
+        </section>"""
+
+
+def guide_cards_html(guides: list[dict], tag: str = "h2") -> str:
+    items = "\n".join(
+        f"""        <li>
+          <a class="card" href="{g['path']}">
+            <{tag}>{html.escape(g['title'])}</{tag}>
+            <p class="summary">{html.escape(g['summary'])}</p>
+          </a>
+        </li>"""
+        for g in guides
+    )
+    return f'      <ul class="tip-list">\n{items}\n      </ul>'
+
+
+def faq_html(faqs: list[tuple[str, str]]) -> str:
+    items = "\n".join(
+        f"          <h3>{html.escape(q)}</h3>\n          <p>{html.escape(a)}</p>" for q, a in faqs
+    )
+    return f"""        <section class="faq" aria-labelledby="faq-heading">
+          <h2 id="faq-heading">Frequently asked questions</h2>
+{items}
+        </section>"""
+
+
+def llms_txt(posts: list[dict], guides: list[dict]) -> str:
     lines = [
         f"# {SITE_NAME}",
         "",
@@ -243,11 +342,16 @@ def llms_txt(posts: list[dict]) -> str:
         "## Tips",
     ]
     lines += [f"- [{p['title']}]({SITE_URL}/tips/{p['slug']}/): {p['summary']}" for p in posts]
+    for section, (prefix, hub_title, _desc, _kicker) in SECTIONS.items():
+        lines += ["", f"## {hub_title or 'Local guides'}"]
+        lines += [f"- [{g['title']}]({SITE_URL}{g['path']}): {g['summary']}" for g in guides if g["section"] == section]
     lines += [
         "",
         "## Pages",
         f"- [Home]({SITE_URL}/): latest tips",
         f"- [All tips]({SITE_URL}/tips/): every tip, newest first",
+        f"- [Common interview questions]({SITE_URL}/questions/): how to answer common questions",
+        f"- [Interview tips by role]({SITE_URL}/roles/): tips for specific jobs and for Atlanta",
         f"- [Job Seekers community]({JOIN_URL}): community for job seekers",
         "",
     ]
@@ -275,6 +379,17 @@ def copy_static() -> None:
 
 def build() -> int:
     posts = load_posts()
+    guides = load_guides()
+    tip_titles = {p["slug"]: p["title"] for p in posts}
+    guide_by_path = {g["path"]: g for g in guides}
+    for g in guides:
+        for ref in g["related"]:
+            if ref not in guide_by_path:
+                raise SystemExit(f"{g['slug']}: related page not found: {ref}")
+        for ref in g["tips"]:
+            if ref not in tip_titles:
+                raise SystemExit(f"{g['slug']}: tip not found: {ref}")
+    by_section = {s: [g for g in guides if g["section"] == s] for s in SECTIONS}
     if DIST_DIR.exists():
         shutil.rmtree(DIST_DIR)
     DIST_DIR.mkdir(parents=True)
@@ -286,7 +401,11 @@ def build() -> int:
         <p>Short, practical advice you can use today. New tips also go out in the Job Seekers community.</p>
         <p class="byline">From Gus Cawley, recruiter and CPA.</p>
       </section>
-{tip_list_html(posts)}"""
+{tip_list_html(posts)}
+{link_list_html("Common interview questions", "home-questions",
+                [(g["path"], g["title"]) for g in by_section["questions"]] + [("/questions/", "See all question guides")])}
+{link_list_html("Interview tips by role and city", "home-roles",
+                [(g["path"], g["title"]) for g in by_section["roles"] + by_section["local"]] + [("/roles/", "See all role guides")])}"""
     write(
         DIST_DIR / "index.html",
         page_shell(
@@ -346,6 +465,7 @@ def build() -> int:
         </div>
         <p class="cta"><a href="{JOIN_URL}">{html.escape(JOIN_CTA)}</a></p>
 {related_html(post, posts)}
+{link_list_html("Go deeper", "deeper-heading", [(g["path"], g["title"]) for g in guides if post["slug"] in g["tips"]])}
         <p><a class="back" href="/tips/">All tips</a></p>
       </article>"""
         write(
@@ -378,12 +498,109 @@ def build() -> int:
             ),
         )
 
-    write(DIST_DIR / "llms.txt", llms_txt(posts))
+    for section, (prefix, hub_title, hub_desc, _kicker) in SECTIONS.items():
+        if not hub_title:
+            continue
+        hub_body = f"""      <section class="intro">
+        <h1>{html.escape(hub_title)}</h1>
+        <p>{html.escape(hub_desc)}</p>
+        <p class="byline">From Gus Cawley, recruiter and CPA.</p>
+      </section>
+{guide_cards_html(by_section[section])}"""
+        if section == "roles":
+            hub_body += "\n      <h2 class=\"section-title\">By city</h2>\n" + guide_cards_html(by_section["local"], "h3")
+            hub_body += '\n      <p class="note">Looking for open jobs? Browse <a href="https://www.100xjobs.com/">100X Jobs</a>.</p>'
+        members = by_section[section] + (by_section["local"] if section == "roles" else [])
+        write(
+            DIST_DIR / prefix.strip("/") / "index.html",
+            page_shell(
+                title=hub_title,
+                description=hub_desc,
+                current=section,
+                content=hub_body,
+                year=year,
+                path=prefix,
+                jsonld={
+                    "@context": "https://schema.org",
+                    "@graph": [
+                        {"@type": "CollectionPage", "name": hub_title, "url": SITE_URL + prefix,
+                         "description": hub_desc, "isPartOf": {"@id": f"{SITE_URL}/#site"},
+                         "hasPart": [{"@type": "Article", "headline": g["title"], "url": SITE_URL + g["path"]}
+                                     for g in members]},
+                        breadcrumbs([("Home", "/"), (hub_title, prefix)]),
+                    ],
+                },
+            ),
+        )
+
+    for g in guides:
+        prefix, hub_title = SECTIONS[g["section"]][:2]
+        hub_path = prefix if hub_title else "/roles/"
+        hub_name = hub_title or SECTIONS["roles"][1]
+        crumbs = [("Home", "/")] + ([(hub_title, prefix)] if hub_title else []) + [(g["title"], g["path"])]
+        related = [(r, guide_by_path[r]["title"]) for r in g["related"]]
+        tips = [(f"/tips/{t}/", tip_titles[t]) for t in g["tips"]]
+        body = f"""      <article class="tip">
+        <p class="kicker"><a href="{hub_path}">{html.escape(g['kicker'])}</a></p>
+        <h1>{html.escape(g['title'])}</h1>
+        <p class="date">By Gus Cawley, recruiter and CPA &middot; <time datetime="{g['date'].isoformat()}">{html.escape(format_date(g['date']))}</time></p>
+        <div class="prose">
+          {g['body_html']}
+        </div>
+{faq_html(g['faqs'])}
+        <p class="cta"><a href="{JOIN_URL}">{html.escape(JOIN_CTA)}</a></p>
+{link_list_html("Related guides", "related-heading", related)}
+{link_list_html("Quick tips on this topic", "tips-heading", tips)}
+        <p><a class="back" href="{hub_path}">All {html.escape(hub_name.lower())}</a></p>
+      </article>"""
+        write(
+            DIST_DIR / g["path"].strip("/") / "index.html",
+            page_shell(
+                title=g["title"],
+                description=g["summary"],
+                current=g["section"] if hub_title else "roles",
+                content=body,
+                year=year,
+                path=g["path"],
+                og_type="article",
+                jsonld={
+                    "@context": "https://schema.org",
+                    "@graph": [
+                        {
+                            "@type": "Article",
+                            "headline": g["title"],
+                            "description": g["summary"],
+                            "datePublished": g["date"].isoformat(),
+                            "image": f"{SITE_URL}/images/{DEFAULT_IMAGE}",
+                            "author": AUTHOR,
+                            "publisher": ORG,
+                            "mainEntityOfPage": SITE_URL + g["path"],
+                        },
+                        breadcrumbs(crumbs),
+                        {
+                            "@type": "FAQPage",
+                            "mainEntity": [
+                                {"@type": "Question", "name": q,
+                                 "acceptedAnswer": {"@type": "Answer", "text": a}}
+                                for q, a in g["faqs"]
+                            ],
+                        },
+                    ],
+                },
+            ),
+        )
+
+    write(DIST_DIR / "llms.txt", llms_txt(posts, guides))
     write(DIST_DIR / "robots.txt", f"User-agent: *\nAllow: /\n\nSitemap: {SITE_URL}/sitemap.xml\n")
-    latest = max(p["date"] for p in posts).isoformat()
+    latest = max(p["date"] for p in posts + guides).isoformat()
     entries = [("/", latest), ("/tips/", latest)] + [
         (f"/tips/{p['slug']}/", p["date"].isoformat()) for p in posts
     ]
+    for section, (prefix, hub_title, *_rest) in SECTIONS.items():
+        members = by_section[section]
+        if hub_title:
+            entries.append((prefix, max(g["date"] for g in members).isoformat()))
+        entries += [(g["path"], g["date"].isoformat()) for g in members]
     urls = "\n".join(
         f"  <url><loc>{SITE_URL}{loc}</loc><lastmod>{mod}</lastmod></url>" for loc, mod in entries
     )
@@ -394,7 +611,9 @@ def build() -> int:
         f"{urls}\n</urlset>\n",
     )
 
-    print(f"Built {len(posts)} tips into {DIST_DIR}")
+    print(f"Built {len(posts)} tips and {len(guides)} guides into {DIST_DIR}")
+    for g in guides:
+        print(f"  {g['path']}  {g['title']}")
     for post in posts:
         print(f"  /tips/{post['slug']}/  {post['title']}")
     return 0

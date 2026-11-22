@@ -349,3 +349,55 @@ article.tip .hero {
 .related li {
   margin: 0.4rem 0;
 }
+
+.kicker a {
+  color: inherit;
+}
+
+.prose h2,
+.faq h2 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin: 2rem 0 0.75rem;
+}
+
+.faq {
+  margin-top: 2.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.faq h3 {
+  font-size: 1.05rem;
+  font-weight: 650;
+  margin: 1.25rem 0 0.35rem;
+}
+
+.faq p {
+  color: var(--muted);
+}
+
+.section-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 2.5rem 0 0.5rem;
+}
+
+.tip-list h3 {
+  font-size: 1.28rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin: 0.3rem 0 0.4rem;
+}
+
+.tip-list .card:hover h3 {
+  color: var(--accent);
+}
+
+.note {
+  margin-top: 2rem;
+  color: var(--muted);
+}

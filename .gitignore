@@ -1,0 +1,4 @@
+.venv/
+dist/
+screens/
+__pycache__/

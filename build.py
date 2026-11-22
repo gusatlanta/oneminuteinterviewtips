@@ -7,6 +7,7 @@ import datetime as dt
 import html
 import re
 import base64
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -19,6 +20,8 @@ STATIC_DIR = ROOT / "static"
 DIST_DIR = ROOT / "dist"
 
 SITE_NAME = "One Minute Interview Tips"
+SITE_URL = "https://www.oneminuteinterviewtips.com"
+DEFAULT_IMAGE = "og-default.png"
 JOIN_URL = "https://www.skool.com/jobseekers"
 JOIN_NAV = "Join the community"
 JOIN_CTA = "Join the Job Seekers community"
@@ -104,6 +107,10 @@ def page_shell(
     current: str,
     content: str,
     year: int,
+    path: str,
+    image: str | None = None,
+    og_type: str = "website",
+    jsonld: dict | None = None,
 ) -> str:
     def nav_link(href: str, label: str, key: str) -> str:
         current_attr = ' aria-current="page"' if current == key else ""
@@ -117,6 +124,23 @@ def page_shell(
         ]
     )
     page_title = title if title == SITE_NAME else f"{title} | {SITE_NAME}"
+    url = SITE_URL + path
+    image_url = f"{SITE_URL}/images/{image or DEFAULT_IMAGE}"
+    t, d = html.escape(page_title), html.escape(description)
+    social = f"""  <link rel="canonical" href="{url}">
+  <meta property="og:site_name" content="{html.escape(SITE_NAME)}">
+  <meta property="og:type" content="{og_type}">
+  <meta property="og:title" content="{t}">
+  <meta property="og:description" content="{d}">
+  <meta property="og:url" content="{url}">
+  <meta property="og:image" content="{image_url}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{t}">
+  <meta name="twitter:description" content="{d}">
+  <meta name="twitter:image" content="{image_url}">"""
+    if jsonld:
+        data = json.dumps(jsonld, indent=2).replace("</", "<\\/")
+        social += f'\n  <script type="application/ld+json">\n{data}\n  </script>'
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -124,6 +148,7 @@ def page_shell(
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{html.escape(page_title)}</title>
   <meta name="description" content="{html.escape(description)}">
+{social}
   <meta name="theme-color" content="#0a0a0a">
   <link rel="icon" href="/favicon.png" type="image/png" sizes="64x64">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -213,6 +238,7 @@ def build() -> int:
             current="home",
             content=home,
             year=year,
+            path="/",
         ),
     )
 
@@ -226,6 +252,7 @@ def build() -> int:
             current="tips",
             content=archive,
             year=year,
+            path="/tips/",
         ),
     )
 
@@ -254,8 +281,36 @@ def build() -> int:
                 current="tip",
                 content=body,
                 year=year,
+                path=f"/tips/{post['slug']}/",
+                image=post["image"],
+                og_type="article",
+                jsonld={
+                    "@context": "https://schema.org",
+                    "@type": "Article",
+                    "headline": post["title"],
+                    "description": post["summary"],
+                    "datePublished": post["date"].isoformat(),
+                    "image": f"{SITE_URL}/images/{post['image'] or DEFAULT_IMAGE}",
+                    "author": {"@type": "Person", "name": "Gus Cawley"},
+                    "mainEntityOfPage": f"{SITE_URL}/tips/{post['slug']}/",
+                },
             ),
         )
+
+    write(DIST_DIR / "robots.txt", f"User-agent: *\nAllow: /\n\nSitemap: {SITE_URL}/sitemap.xml\n")
+    latest = max(p["date"] for p in posts).isoformat()
+    entries = [("/", latest), ("/tips/", latest)] + [
+        (f"/tips/{p['slug']}/", p["date"].isoformat()) for p in posts
+    ]
+    urls = "\n".join(
+        f"  <url><loc>{SITE_URL}{loc}</loc><lastmod>{mod}</lastmod></url>" for loc, mod in entries
+    )
+    write(
+        DIST_DIR / "sitemap.xml",
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        f"{urls}\n</urlset>\n",
+    )
 
     print(f"Built {len(posts)} tips into {DIST_DIR}")
     for post in posts:
